@@ -1124,7 +1124,21 @@ async function applySupervisorChanges(env: Env, report: Report, logs: LogItem[])
       const updatedStrat = { ...cfgStrat, ...strategyChanges };
       await putJson(env, 'strategies_config', updatedStrat);
     }
-    await appendLogs(env, [{ ts: new Date().toISOString(), event: 'config_updated_by_supervisor', data: { applied, runner_cycle: report.cycle, strategies: strategyChanges, guardrails: 'bounded' } }]);
+
+    // RECOMENDACIÓN 5: Análisis por activo - agregar logs por activo
+    const assetPerformance: Record<string, any> = {};
+    const summary = report.summary || {};
+    for (const asset of ['BTC', 'ETH', 'POL', 'SOL', 'CRO', 'XRP', 'LINK']) {
+      const key = `${asset}_1D_CHANGE_PCT`;
+      if (summary[key] !== undefined) {
+        assetPerformance[asset] = {
+          change_1d_pct: summary[key],
+          performance_level: Math.abs(Number(summary[key] || 0)) > 5 ? 'high_volatility' : 'normal'
+        };
+      }
+    }
+
+    await appendLogs(env, [{ ts: new Date().toISOString(), event: 'config_updated_by_supervisor', data: { applied, runner_cycle: report.cycle, strategies: strategyChanges, asset_performance: assetPerformance, guardrails: 'bounded' } }]);
     return applied;
   }
 
@@ -1957,12 +1971,15 @@ type StrategyCfg = {
 const GRID_MIN_NIVELES = 2;
 
 const STRATEGY_DEFAULTS: StrategyCfg = {
-  grid: { enabled: false, symbol: 'BTC', levels: 3, step_pct: 1.5, amount_usdc: 5 },
-  dca: { enabled: false, symbol: 'BTC', interval_hours: 12, amount_usdc: 5, dip_pct: 0.5 },
+  // RECOMENDACIÓN 3: Aumentar capital en DCA y GRID para mejor oportunidad
+  // RECOMENDACIÓN 4: Optimizar DCA (reducir intervalo, aumentar monto)
+  grid: { enabled: false, symbol: 'BTC', levels: 3, step_pct: 1.5, amount_usdc: 8 }, // Aumentado de 5 a 8
+  dca: { enabled: false, symbol: 'BTC', interval_hours: 8, amount_usdc: 8, dip_pct: 0.5 }, // Reducido interval (12→8h), aumentado monto (5→8)
   rebalancer: { enabled: true, sells_without_profit: false },
   proteccion: { strong_ai_sells_without_profit: false, defensive_stop_sells: true, sell_with_unknown_cost: false, strong_ai_confidence: 0.88 },
   supervisor: { auto_apply: false },
-  usdt: { operable: false },
+  // RECOMENDACIÓN 2: Reducir fricción - desactivar USDT operable para usar solo USDC
+  usdt: { operable: false }, // Mantener false para evitar conversiones USDT→USDC
   universo: { nucleo: 'BTC,ETH', max_extra: 4, excluir: '' },
   // Refleja el valor que el motor aplicaba en silencio (CRO_BUY_DISABLED=YES).
   cro: { compras_habilitadas: false },
