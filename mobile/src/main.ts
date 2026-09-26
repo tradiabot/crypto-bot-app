@@ -47,7 +47,7 @@ app.innerHTML=`<main class="shell">
     <p class="eyebrow">TRADEBOT AI</p>
     <h1>crypto<span>_</span>bot</h1>
     <div style="margin-top:8px;padding:8px 12px;background:rgba(94,238,200,.12);border-radius:8px;border:1px solid rgba(94,238,200,.2);font-size:10px;font-weight:600">
-      <span id="appVersion" style="color:var(--green)">v1.4.3</span> · CLOUD READY · <span id="connection" class="status" style="display:inline-flex;margin:0"><i></i><span>conectando</span></span>
+      <span id="appVersion" style="color:var(--green)">v1.4.5</span> · CLOUD READY · <span id="connection" class="status" style="display:inline-flex;margin:0"><i></i><span>conectando</span></span>
     </div>
   </div>
 </header>
