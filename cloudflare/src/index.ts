@@ -1090,20 +1090,59 @@ async function applySupervisorChanges(env: Env, report: Report, logs: LogItem[])
       applied[key] = clamped;
     }
   }
-  if (!Object.keys(applied).length) return applied;
+  // Supervisor: activa SHORT/LONG automáticamente basado en condiciones BTC
+  const summary = report.summary || {};
+  const btcChange = Number(summary.BTC_1D_CHANGE_PCT || 0);
   const cfgStrat = await strategyConfig(env);
+
+  // Proponer activación/desactivación automática de SHORT y LONG
+  const strategyChanges: Record<string, any> = {};
+  if (btcChange < -3.0 && !cfgStrat.short.enabled) {
+    strategyChanges['short'] = { ...cfgStrat.short, enabled: true };
+    applied['short.activation'] = 'true (BTC -3%)';
+  }
+  if (btcChange > 3.0 && !cfgStrat.long.enabled) {
+    strategyChanges['long'] = { ...cfgStrat.long, enabled: true };
+    applied['long.activation'] = 'true (BTC +3%)';
+  }
+  if (btcChange > -1.0 && cfgStrat.short.enabled) {
+    strategyChanges['short'] = { ...cfgStrat.short, enabled: false };
+    applied['short.deactivation'] = 'true (BTC recovery)';
+  }
+  if (btcChange < 1.0 && cfgStrat.long.enabled) {
+    strategyChanges['long'] = { ...cfgStrat.long, enabled: false };
+    applied['long.deactivation'] = 'true (BTC decline)';
+  }
+
+  if (!Object.keys(applied).length && !Object.keys(strategyChanges).length) return applied;
+
   if (cfgStrat.supervisor.auto_apply) {
+    // Aplicar cambios de configuración paramétrica
     await putJson(env, 'config_values', current);
-    await appendLogs(env, [{ ts: new Date().toISOString(), event: 'config_updated_by_supervisor', data: { applied, runner_cycle: report.cycle, guardrails: 'bounded' } }]);
+    // Aplicar cambios de estrategias
+    if (Object.keys(strategyChanges).length > 0) {
+      const updatedStrat = { ...cfgStrat, ...strategyChanges };
+      await putJson(env, 'strategies_config', updatedStrat);
+    }
+    await appendLogs(env, [{ ts: new Date().toISOString(), event: 'config_updated_by_supervisor', data: { applied, runner_cycle: report.cycle, strategies: strategyChanges, guardrails: 'bounded' } }]);
     return applied;
   }
+
   // Sin auto_apply el cambio NO se aplica: queda pendiente de tu aprobacion.
-  const previos: Record<string, number> = {};
+  const previos: Record<string, any> = {};
   const base = await configValues(env);
   for (const k of Object.keys(applied)) previos[k] = base[k];
-  await putJson(env, 'supervisor_pending', { ts: new Date().toISOString(), runner_cycle: report.cycle, cambios: applied, previos });
-  await appendLogs(env, [{ ts: new Date().toISOString(), event: 'supervisor_change_pending', data: { cambios: applied, previos } }]);
-  const resumen = Object.entries(applied).map(([k, v]) => `${k}: ${previos[k]} -> ${v}`).join(', ');
+
+  // Agregar estrategias propuestas a la revisión
+  const fullChanges = { ...applied, ...Object.fromEntries(Object.entries(strategyChanges).map(([k, v]) => [`${k}.enabled`, v.enabled])) };
+  const fullPrevios = { ...previos };
+  for (const k of Object.keys(strategyChanges)) {
+    fullPrevios[`${k}.enabled`] = cfgStrat[k].enabled;
+  }
+
+  await putJson(env, 'supervisor_pending', { ts: new Date().toISOString(), runner_cycle: report.cycle, cambios: fullChanges, previos: fullPrevios });
+  await appendLogs(env, [{ ts: new Date().toISOString(), event: 'supervisor_change_pending', data: { cambios: fullChanges, previos: fullPrevios } }]);
+  const resumen = Object.entries(fullChanges).map(([k, v]) => `${k}: ${fullPrevios[k]} -> ${v}`).join(', ');
   await sendPush(env, 'supervisor', { kind: 'supervisor', title: 'El supervisor propone ajustes', body: resumen.slice(0, 160) }).catch(() => {});
   return {};
 }
